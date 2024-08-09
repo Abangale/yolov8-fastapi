@@ -3,14 +3,17 @@ import io
 import pandas as pd
 import numpy as np
 
-from typing import Optional
-
 from ultralytics import YOLO
-from ultralytics.yolo.utils.plotting import Annotator, colors
+from ultralytics.utils.plotting import Annotator
 
 
-# Initialize the models
-model_sample_model = YOLO("./models/sample_model/yolov8n.pt")
+# Initialize the models by mode
+def model_chooser(mode: str):
+    if mode == 'beku':
+        yolov8_model = YOLO("C./models/sample_model/yolov8l.pt")
+    elif mode == 'tidak_beku':
+        yolov8_model = YOLO("./models/sample_model/yolov8m.pt")
+    return yolov8_model
 
 
 def get_image_from_bytes(binary_image: bytes) -> Image:
@@ -96,7 +99,7 @@ def get_model_predict(model: YOLO, input_image: Image, save: bool = False, image
 
 ################################# BBOX Func #####################################
 
-def add_bboxs_on_img(image: Image, predict: pd.DataFrame()) -> Image:
+def add_bboxs_on_img(image: Image, predict: pd.DataFrame) -> Image:
     """
     add a bounding box on the image
 
@@ -119,8 +122,15 @@ def add_bboxs_on_img(image: Image, predict: pd.DataFrame()) -> Image:
         text = f"{row['name']}: {int(row['confidence']*100)}%"
         # get the bounding box coordinates
         bbox = [row['xmin'], row['ymin'], row['xmax'], row['ymax']]
+        # color label each bbox
+        if row['name'] == 'fresh':
+            color = (0, 255, 0)
+            txt_color = (0, 0, 0)
+        elif row['name'] == 'no-fresh':
+            color = (255, 0, 0)
+            txt_color = (255, 255, 255)
         # add the bounding box and text on the image
-        annotator.box_label(bbox, text, color=colors(row['class'], True))
+        annotator.box_label(bbox, text, color=color, txt_color=txt_color)
     # convert the annotated image to PIL image
     return Image.fromarray(annotator.result())
 
@@ -128,7 +138,7 @@ def add_bboxs_on_img(image: Image, predict: pd.DataFrame()) -> Image:
 ################################# Models #####################################
 
 
-def detect_sample_model(input_image: Image) -> pd.DataFrame:
+def detect_sample_model(input_image: Image, text: str) -> pd.DataFrame:
     """
     Predict from sample_model.
     Base on YoloV8
@@ -140,7 +150,7 @@ def detect_sample_model(input_image: Image) -> pd.DataFrame:
         pd.DataFrame: DataFrame containing the object location.
     """
     predict = get_model_predict(
-        model=model_sample_model,
+        model=model_chooser(text),
         input_image=input_image,
         save=False,
         image_size=640,

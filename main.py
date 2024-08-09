@@ -1,35 +1,20 @@
-####################################### IMPORT #################################
+################################# IMPORT #################################
 import json
 import pandas as pd
 from PIL import Image
-from loguru import logger
-import sys
+import base64
 
 from fastapi import FastAPI, File, status
 from fastapi.responses import RedirectResponse
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
-
-from io import BytesIO
 
 from app import get_image_from_bytes
 from app import detect_sample_model
 from app import add_bboxs_on_img
 from app import get_bytes_from_image
 
-####################################### logger #################################
-
-logger.remove()
-logger.add(
-    sys.stderr,
-    colorize=True,
-    format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
-    level=10,
-)
-logger.add("log.log", rotation="1 MB", level="DEBUG", compression="zip")
-
-###################### FastAPI Setup #############################
+############################# FastAPI Setup #############################
 
 # title
 app = FastAPI(
@@ -93,9 +78,9 @@ def perform_healthcheck():
     return {'healthcheck': 'Everything OK!'}
 
 
-######################### Support Func #################################
+################################# Support Func #################################
 
-def crop_image_by_predict(image: Image, predict: pd.DataFrame(), crop_class_name: str,) -> Image:
+def crop_image_by_predict(image: Image, predict: pd.DataFrame, crop_class_name: str,) -> Image:
     """Crop an image based on the detection of a certain object in the image.
     
     Args:
@@ -121,59 +106,44 @@ def crop_image_by_predict(image: Image, predict: pd.DataFrame(), crop_class_name
     return(img_crop)
 
 
-######################### MAIN Func #################################
+################################# MAIN Func #################################
 
-
-@app.post("/img_object_detection_to_json")
-def img_object_detection_to_json(file: bytes = File(...)):
-    """
-    Object Detection from an image.
-
-    Args:
-        file (bytes): The image file in bytes format.
-    Returns:
-        dict: JSON format containing the Objects Detections.
-    """
-    # Step 1: Initialize the result dictionary with None values
-    result={'detect_objects': None}
-
-    # Step 2: Convert the image file to an image object
-    input_image = get_image_from_bytes(file)
-
-    # Step 3: Predict from model
-    predict = detect_sample_model(input_image)
-
-    # Step 4: Select detect obj return info
-    # here you can choose what data to send to the result
-    detect_res = predict[['name', 'confidence']]
-    objects = detect_res['name'].values
-
-    result['detect_objects_names'] = ', '.join(objects)
-    result['detect_objects'] = json.loads(detect_res.to_json(orient='records'))
-
-    # Step 5: Logs and return
-    logger.info("results: {}", result)
-    return result
-
-@app.post("/img_object_detection_to_img")
-def img_object_detection_to_img(file: bytes = File(...)):
-    """
-    Object Detection from an image plot bbox on image
+@app.post("/img_object_detection")
+def img_object_detection(mode: str, file: bytes = File(...)):
+    '''
+    Object Detection with output of Image BBox and JSON
 
     Args:
         file (bytes): The image file in bytes format.
     Returns:
-        Image: Image in bytes with bbox annotations.
-    """
-    # get image from bytes
+        dict: JSON Format data output.
+    '''
+    # Step 1: Get image from bytes
     input_image = get_image_from_bytes(file)
 
-    # model predict
-    predict = detect_sample_model(input_image)
+    # Step 2: Predict from model
+    predict = detect_sample_model(input_image, mode)
 
-    # add bbox on image
+    # Step 3: Add bbox on image
     final_image = add_bboxs_on_img(image = input_image, predict = predict)
 
-    # return image in bytes format
-    return StreamingResponse(content=get_bytes_from_image(final_image), media_type="image/jpeg")
+    # Step 4: Count total fresh and no-fresh label
+    total = len(predict['name'])
+    fresh = len(predict[predict['name'] == 'fresh'])
+    no_fresh = len(predict[predict['name'] == 'no-fresh'])
 
+    # Step 5: Get bytes from image and format into base64
+    image_bytes = get_bytes_from_image(final_image)
+    bytes = image_bytes.getvalue()  # Read the contents of the BytesIO object as bytes
+    image_result = {'image_data': base64.b64encode(bytes).decode('utf-8')}
+
+    # Step 6: JSON Structure
+    response_data = {
+        'total':total,
+        'fresh':fresh,
+        'no_fresh':no_fresh,
+        **image_result
+    }
+
+    # Return JSON
+    return response_data
